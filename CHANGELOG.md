@@ -188,7 +188,7 @@ import * as Sentry from '@sentry/browser';
 Sentry.init({
   integrations: [
     // Instead of
-    new Sentry.Replay(),
+    Sentry.replayIntegration(),
     new Sentry.Feedback(),
     // Use the functional replacement:
     Sentry.replayIntegration(),
@@ -258,7 +258,7 @@ Just add it _in addition_ to the regular replay integration:
 
 ```js
 Sentry.init({
-  integrations: [new Sentry.Replay(), new Sentry.ReplayCanvas()],
+  integrations: [Sentry.replayIntegration(), new Sentry.ReplayCanvas()],
 });
 ```
 
