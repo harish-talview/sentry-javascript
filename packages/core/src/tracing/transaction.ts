@@ -292,8 +292,6 @@ export class Transaction extends SentrySpan implements TransactionInterface {
       // TODO: Pass spans serialized via `spanToJSON()` here instead in v8.
       spans: finishedSpans,
       start_timestamp: this._startTime,
-      // eslint-disable-next-line deprecation/deprecation
-      tags: this.tags,
       timestamp: this._endTime,
       transaction: this._name,
       type: 'transaction',

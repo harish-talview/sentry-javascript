@@ -1,5 +1,4 @@
 import type {
-  Primitive,
   Span as SpanInterface,
   SpanAttributeValue,
   SpanAttributes,
@@ -64,12 +63,6 @@ export class SpanRecorder {
  */
 export class SentrySpan implements SpanInterface {
   /**
-   * Tags for the span.
-   * @deprecated Use `spanToJSON(span).atttributes` instead.
-   */
-  public tags: { [key: string]: Primitive };
-
-  /**
    * Data for the span.
    * @deprecated Use `spanToJSON(span).atttributes` instead.
    */
@@ -114,8 +107,6 @@ export class SentrySpan implements SpanInterface {
     this._traceId = spanContext.traceId || uuid4();
     this._spanId = spanContext.spanId || uuid4().substring(16);
     this._startTime = spanContext.startTimestamp || timestampInSeconds();
-    // eslint-disable-next-line deprecation/deprecation
-    this.tags = spanContext.tags ? { ...spanContext.tags } : {};
     // eslint-disable-next-line deprecation/deprecation
     this.data = spanContext.data ? { ...spanContext.data } : {};
 
@@ -339,21 +330,6 @@ export class SentrySpan implements SpanInterface {
   }
 
   /**
-   * Sets the tag attribute on the current span.
-   *
-   * Can also be used to unset a tag, by passing `undefined`.
-   *
-   * @param key Tag key
-   * @param value Tag value
-   * @deprecated Use `setAttribute()` instead.
-   */
-  public setTag(key: string, value: Primitive): this {
-    // eslint-disable-next-line deprecation/deprecation
-    this.tags = { ...this.tags, [key]: value };
-    return this;
-  }
-
-  /**
    * Sets the data attribute on the current span
    * @param key Data key
    * @param value Data value
@@ -435,8 +411,6 @@ export class SentrySpan implements SpanInterface {
       spanId: this._spanId,
       startTimestamp: this._startTime,
       status: this._status,
-      // eslint-disable-next-line deprecation/deprecation
-      tags: this.tags,
       traceId: this._traceId,
     });
   }
@@ -457,8 +431,6 @@ export class SentrySpan implements SpanInterface {
     this._spanId = spanContext.spanId || this._spanId;
     this._startTime = spanContext.startTimestamp || this._startTime;
     this._status = spanContext.status;
-    // eslint-disable-next-line deprecation/deprecation
-    this.tags = spanContext.tags || {};
     this._traceId = spanContext.traceId || this._traceId;
 
     return this;
@@ -490,8 +462,6 @@ export class SentrySpan implements SpanInterface {
       span_id: this._spanId,
       start_timestamp: this._startTime,
       status: this._status,
-      // eslint-disable-next-line deprecation/deprecation
-      tags: Object.keys(this.tags).length > 0 ? this.tags : undefined,
       timestamp: this._endTime,
       trace_id: this._traceId,
       origin: this._attributes[SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN] as SpanOrigin | undefined,

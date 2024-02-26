@@ -50,7 +50,6 @@ export interface SpanJSON {
   span_id: string;
   start_timestamp: number;
   status?: string;
-  tags?: { [key: string]: Primitive };
   timestamp?: number;
   trace_id: string;
   origin?: SpanOrigin;
@@ -135,12 +134,6 @@ export interface SpanContext {
   traceId?: string | undefined;
 
   /**
-   * Tags of the Span.
-   * @deprecated Pass `attributes` instead.
-   */
-  tags?: { [key: string]: Primitive };
-
-  /**
    * Data of the Span.
    * @deprecated Pass `attributes` instead.
    */
@@ -207,12 +200,6 @@ export interface Span extends Omit<SpanContext, 'name' | 'op' | 'status' | 'orig
   endTimestamp?: number | undefined;
 
   /**
-   * Tags for the span.
-   * @deprecated Use `spanToJSON(span).atttributes` instead.
-   */
-  tags: { [key: string]: Primitive };
-
-  /**
    * Data for the span.
    * @deprecated Use `spanToJSON(span).atttributes` instead.
    */
@@ -249,17 +236,6 @@ export interface Span extends Omit<SpanContext, 'name' | 'op' | 'status' | 'orig
    * End the current span.
    */
   end(endTimestamp?: SpanTimeInput): void;
-
-  /**
-   * Sets the tag attribute on the current span.
-   *
-   * Can also be used to unset a tag, by passing `undefined`.
-   *
-   * @param key Tag key
-   * @param value Tag value
-   * @deprecated Use `setAttribute()` instead.
-   */
-  setTag(key: string, value: Primitive): this;
 
   /**
    * Sets the data attribute on the current span
