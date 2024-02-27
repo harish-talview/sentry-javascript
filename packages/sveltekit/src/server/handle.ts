@@ -1,8 +1,8 @@
 import {
   SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
   SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
+  continueTrace,
   getActiveSpan,
-  getCurrentScope,
   getDynamicSamplingContextFromSpan,
   setHttpStatus,
   spanToTraceHeader,
@@ -10,7 +10,6 @@ import {
 } from '@sentry/core';
 import { getActiveTransaction, startSpan } from '@sentry/core';
 import { captureException } from '@sentry/node-experimental';
-/* eslint-disable @sentry-internal/sdk/no-optional-chaining */
 import type { Span } from '@sentry/types';
 import { dynamicSamplingContextToSentryBaggageHeader, objectify } from '@sentry/utils';
 import type { Handle, ResolveOptions } from '@sveltejs/kit';
@@ -171,39 +170,35 @@ async function instrumentHandle(
     return resolve(event);
   }
 
-  const { dynamicSamplingContext, traceparentData, propagationContext } = getTracePropagationData(event);
-  getCurrentScope().setPropagationContext(propagationContext);
+  const { sentryTrace, baggage } = getTracePropagationData(event);
 
-  try {
-    const resolveResult = await startSpan(
-      {
-        op: 'http.server',
-        attributes: {
-          [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.http.sveltekit',
-          [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: event.route?.id ? 'route' : 'url',
+  return continueTrace({ sentryTrace, baggage }, async () => {
+    try {
+      const resolveResult = await startSpan(
+        {
+          op: 'http.server',
+          attributes: {
+            [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.http.sveltekit',
+            [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: event.route?.id ? 'route' : 'url',
+          },
+          name: `${event.request.method} ${event.route?.id || event.url.pathname}`,
         },
-        name: `${event.request.method} ${event.route?.id || event.url.pathname}`,
-        status: 'ok',
-        ...traceparentData,
-        metadata: {
-          dynamicSamplingContext: traceparentData && !dynamicSamplingContext ? {} : dynamicSamplingContext,
+        async (span?: Span) => {
+          const res = await resolve(event, {
+            transformPageChunk: addSentryCodeToPage(options),
+          });
+          if (span) {
+            setHttpStatus(span, res.status);
+          }
+          return res;
         },
-      },
-      async (span?: Span) => {
-        const res = await resolve(event, {
-          transformPageChunk: addSentryCodeToPage(options),
-        });
-        if (span) {
-          setHttpStatus(span, res.status);
-        }
-        return res;
-      },
-    );
-    return resolveResult;
-  } catch (e: unknown) {
-    sendErrorToSentry(e);
-    throw e;
-  } finally {
-    await flushIfServerless();
-  }
+      );
+      return resolveResult;
+    } catch (e: unknown) {
+      sendErrorToSentry(e);
+      throw e;
+    } finally {
+      await flushIfServerless();
+    }
+  });
 }
