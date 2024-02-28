@@ -259,6 +259,27 @@ function makeWrappedDataFunction(
       });
 
       if (span) {
+        const options = getClient()?.getOptions();
+
+        // We only capture form data for `action` functions, when `sendDefaultPii` is enabled.
+        if (name === 'action' && options?.sendDefaultPii) {
+          try {
+            // We clone the request for Remix be able to read the FormData later.
+            const clonedRequest = args.request.clone();
+
+            // This only will return the last name of multiple file uploads in a single FormData entry.
+            // We can switch to `unstable_parseMultipartFormData` when it's stable.
+            // https://remix.run/docs/en/main/utils/parse-multipart-form-data#unstable_parsemultipartformdata
+            const formData = await clonedRequest.formData();
+
+            formData.forEach((value, key) => {
+              span.setAttribute(`action_form_data_${key}`, typeof value === 'string' ? value : '[non-string value]');
+            });
+          } catch (e) {
+            DEBUG_BUILD && logger.warn('Failed to read FormData from request', e);
+          }
+        }
+
         // Assign data function to hub to be able to see `db` transactions (if any) as children.
         // eslint-disable-next-line deprecation/deprecation
         currentScope.setSpan(span);
