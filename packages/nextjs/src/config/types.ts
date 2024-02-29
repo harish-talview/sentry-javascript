@@ -1,9 +1,5 @@
 import type { GLOBAL_OBJ } from '@sentry/utils';
-import type { SentryCliPluginOptions } from '@sentry/webpack-plugin';
 import type { DefinePlugin, WebpackPluginInstance } from 'webpack';
-
-export type SentryWebpackPluginOptions = SentryCliPluginOptions;
-export type SentryWebpackPlugin = WebpackPluginInstance & { options: SentryWebpackPluginOptions };
 
 // Export this from here because importing something from Webpack (the library) in `webpack.ts` confuses the heck out of
 // madge, which we use for circular dependency checking. We've manually excluded this file from the check (which is
@@ -49,6 +45,40 @@ export type NextConfigObject = {
 };
 
 export type SentryBuildtimeOptions = {
+  /**
+   * TODO
+   */
+  sourcemaps: {
+    disable: {};
+  };
+
+  /**
+   * TODO
+   */
+  release: {
+    disable: {};
+  };
+
+  /**
+   * TODO
+   */
+  unstable_sentryWebpackPluginOptions: {};
+
+  /**
+   * TODO
+   */
+  silent: {};
+
+  /**
+   * TODO
+   */
+  componentAnnotation: {};
+
+  /**
+   * TODO
+   */
+  telemetry: {};
+
   /**
    * Override the SDK's default decision about whether or not to enable to the Sentry webpack plugin for server files.
    * Note that `false` forces the plugin to be enabled, even in situations where it's not recommended.
@@ -143,7 +173,7 @@ export type NextConfigFunction = (
 export type WebpackConfigFunction = (config: WebpackConfigObject, options: BuildContext) => WebpackConfigObject;
 export type WebpackConfigObject = {
   devtool?: string;
-  plugins?: Array<WebpackPluginInstance | SentryWebpackPlugin>;
+  plugins?: Array<WebpackPluginInstance>;
   entry: WebpackEntryProperty;
   output: { filename: string; path: string };
   target: string;

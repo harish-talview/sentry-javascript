@@ -3,12 +3,12 @@ import * as path from 'path';
 /* eslint-disable complexity */
 /* eslint-disable max-lines */
 import { getSentryRelease } from '@sentry/node-experimental';
-import { arrayify, dropUndefinedKeys, escapeStringForRegex, loadModule, logger } from '@sentry/utils';
-import type SentryCliPlugin from '@sentry/webpack-plugin';
+import { arrayify, dropUndefinedKeys, escapeStringForRegex, logger } from '@sentry/utils';
 import * as chalk from 'chalk';
 import { sync as resolveSync } from 'resolve';
-import type { Compiler } from 'webpack';
 
+import type { SentryWebpackPluginOptions } from '@sentry/webpack-plugin';
+import { sentryWebpackPlugin } from '@sentry/webpack-plugin';
 import { DEBUG_BUILD } from '../common/debug-build';
 import type { VercelCronsConfig } from '../common/types';
 // Note: If you need to import a type from Webpack, do it in `types.ts` and export it from there. Otherwise, our
@@ -18,13 +18,11 @@ import type {
   EntryPropertyObject,
   NextConfigObject,
   SentryBuildtimeOptions,
-  SentryWebpackPluginOptions,
   WebpackConfigFunction,
   WebpackConfigObject,
   WebpackConfigObjectWithModuleRules,
   WebpackEntryProperty,
   WebpackModuleRule,
-  WebpackPluginInstance,
 } from './types';
 
 const RUNTIME_TO_SDK_ENTRYPOINT_MAP = {
@@ -35,16 +33,8 @@ const RUNTIME_TO_SDK_ENTRYPOINT_MAP = {
 
 // Next.js runs webpack 3 times, once for the client, the server, and for edge. Because we don't want to print certain
 // warnings 3 times, we keep track of them here.
-let showedMissingAuthTokenErrorMsg = false;
-let showedMissingOrgSlugErrorMsg = false;
-let showedMissingProjectSlugErrorMsg = false;
 let showedHiddenSourceMapsWarningMsg = false;
-let showedMissingCliBinaryWarningMsg = false;
 let showedMissingGlobalErrorWarningMsg = false;
-
-// TODO: merge default SentryWebpackPlugin ignore with their SentryWebpackPlugin ignore or ignoreFile
-// TODO: merge default SentryWebpackPlugin include with their SentryWebpackPlugin include
-// TODO: drop merged keys from override check? `includeDefaults` option?
 
 /**
  * Construct the function which will be used as the nextjs config's `webpack` value.
@@ -347,6 +337,7 @@ export function constructWebpackConfigFunction(
       }
     }
 
+    // TODO(v8): Remove this logic since we are deprecating es5.
     // The SDK uses syntax (ES6 and ES6+ features like object spread) which isn't supported by older browsers. For users
     // who want to support such browsers, `transpileClientSDK` allows them to force the SDK code to go through the same
     // transpilation that their code goes through. We don't turn this on by default because it increases bundle size
@@ -406,17 +397,10 @@ export function constructWebpackConfigFunction(
         // without, the option to use `hidden-source-map` only applies to the client-side build.
         newConfig.devtool = userSentryOptions.hideSourceMaps && !isServer ? 'hidden-source-map' : 'source-map';
 
-        const SentryWebpackPlugin = loadModule<SentryCliPlugin>('@sentry/webpack-plugin');
-        if (SentryWebpackPlugin) {
-          newConfig.plugins = newConfig.plugins || [];
-          newConfig.plugins.push(new SentryCliDownloadPlugin());
-          newConfig.plugins.push(
-            // @ts-expect-error - this exists, the dynamic import just doesn't know about it
-            new SentryWebpackPlugin(
-              getWebpackPluginOptions(buildContext, userSentryWebpackPluginOptions, userSentryOptions),
-            ),
-          );
-        }
+        newConfig.plugins = newConfig.plugins || [];
+        newConfig.plugins.push(
+          sentryWebpackPlugin(getWebpackPluginOptions(buildContext, userSentryWebpackPluginOptions, userSentryOptions)),
+        );
       }
     }
 
@@ -486,13 +470,11 @@ function findTranspilationRules(rules: WebpackModuleRule[] | undefined, projectD
   // Each entry in `module.rules` is either a rule in and of itself or an object with a `oneOf` property, whose value is
   // an array of rules
   rules.forEach(rule => {
-    // if (rule.oneOf) {
     if (isMatchingRule(rule, projectDir)) {
       matchingRules.push(rule);
     } else if (rule.oneOf) {
       const matchingOneOfRules = rule.oneOf.filter(oneOfRule => isMatchingRule(oneOfRule, projectDir));
       matchingRules.push(...matchingOneOfRules);
-      // } else if (isMatchingRule(rule, projectDir)) {
     }
   });
 
@@ -674,30 +656,6 @@ function addFilesToExistingEntryPoint(
 }
 
 /**
- * Check the SentryWebpackPlugin options provided by the user against the options we set by default, and warn if any of
- * our default options are getting overridden. (Note: If any of our default values is undefined, it won't be included in
- * the warning.)
- *
- * @param defaultOptions Default SentryWebpackPlugin options
- * @param userOptions The user's SentryWebpackPlugin options
- */
-function checkWebpackPluginOverrides(
-  defaultOptions: SentryWebpackPluginOptions,
-  userOptions: Partial<SentryWebpackPluginOptions>,
-): void {
-  // warn if any of the default options for the webpack plugin are getting overridden
-  const sentryWebpackPluginOptionOverrides = Object.keys(defaultOptions).filter(key => key in userOptions);
-  if (sentryWebpackPluginOptionOverrides.length > 0) {
-    DEBUG_BUILD &&
-      logger.warn(
-        '[Sentry] You are overriding the following automatically-set SentryWebpackPlugin config options:\n' +
-          `\t${sentryWebpackPluginOptionOverrides.toString()},\n` +
-          "which has the possibility of breaking source map upload and application. This is only a good idea if you know what you're doing.",
-      );
-  }
-}
-
-/**
  * Determine if this is an entry point into which both `Sentry.init()` code and the release value should be injected
  *
  * @param entryPointName The name of the entry point in question
@@ -770,116 +728,9 @@ export function getWebpackPluginOptions(
     release: getSentryRelease(buildId),
   });
 
-  checkWebpackPluginOverrides(defaultPluginOptions, userPluginOptions);
-
   return {
-    ...defaultPluginOptions,
-    ...userPluginOptions,
-    errorHandler(err, invokeErr, compilation) {
-      if (err) {
-        const errorMessagePrefix = `${chalk.red('error')} -`;
-
-        if (err.message.includes('ENOENT')) {
-          if (!showedMissingCliBinaryWarningMsg) {
-            // eslint-disable-next-line no-console
-            console.error(
-              `\n${errorMessagePrefix} ${chalk.bold(
-                'The Sentry binary to upload sourcemaps could not be found.',
-              )} Source maps will not be uploaded. Please check that post-install scripts are enabled in your package manager when installing your dependencies and please run your build once without any caching to avoid caching issues of dependencies.\n`,
-            );
-            showedMissingCliBinaryWarningMsg = true;
-          }
-          return;
-        }
-
-        // Hardcoded way to check for missing auth token until we have a better way of doing this.
-        if (err.message.includes('Authentication credentials were not provided.')) {
-          let msg;
-
-          if (process.env.VERCEL) {
-            msg = `To fix this, use Sentry's Vercel integration to automatically set the ${chalk.bold.cyan(
-              'SENTRY_AUTH_TOKEN',
-            )} environment variable: https://vercel.com/integrations/sentry`;
-          } else {
-            msg =
-              'You can find information on how to generate a Sentry auth token here: https://docs.sentry.io/api/auth/\n' +
-              `After generating a Sentry auth token, set it via the ${chalk.bold.cyan(
-                'SENTRY_AUTH_TOKEN',
-              )} environment variable during the build.`;
-          }
-
-          if (!showedMissingAuthTokenErrorMsg) {
-            // eslint-disable-next-line no-console
-            console.error(
-              `${errorMessagePrefix} ${chalk.bold(
-                'No Sentry auth token configured.',
-              )} Source maps will not be uploaded.\n${msg}\n`,
-            );
-            showedMissingAuthTokenErrorMsg = true;
-          }
-
-          return;
-        }
-
-        // Hardcoded way to check for missing org slug until we have a better way of doing this.
-        if (err.message.includes('An organization slug is required')) {
-          let msg;
-          if (process.env.VERCEL) {
-            msg = `To fix this, use Sentry's Vercel integration to automatically set the ${chalk.bold.cyan(
-              'SENTRY_ORG',
-            )} environment variable: https://vercel.com/integrations/sentry`;
-          } else {
-            msg = `To fix this, set the ${chalk.bold.cyan(
-              'SENTRY_ORG',
-            )} environment variable to the to your organization slug during the build.`;
-          }
-
-          if (!showedMissingOrgSlugErrorMsg) {
-            // eslint-disable-next-line no-console
-            console.error(
-              `${errorMessagePrefix} ${chalk.bold(
-                'No Sentry organization slug configured.',
-              )} Source maps will not be uploaded.\n${msg}\n`,
-            );
-            showedMissingOrgSlugErrorMsg = true;
-          }
-
-          return;
-        }
-
-        // Hardcoded way to check for missing project slug until we have a better way of doing this.
-        if (err.message.includes('A project slug is required')) {
-          let msg;
-          if (process.env.VERCEL) {
-            msg = `To fix this, use Sentry's Vercel integration to automatically set the ${chalk.bold.cyan(
-              'SENTRY_PROJECT',
-            )} environment variable: https://vercel.com/integrations/sentry`;
-          } else {
-            msg = `To fix this, set the ${chalk.bold.cyan(
-              'SENTRY_PROJECT',
-            )} environment variable to the name of your Sentry project during the build.`;
-          }
-
-          if (!showedMissingProjectSlugErrorMsg) {
-            // eslint-disable-next-line no-console
-            console.error(
-              `${errorMessagePrefix} ${chalk.bold(
-                'No Sentry project slug configured.',
-              )} Source maps will not be uploaded.\n${msg}\n`,
-            );
-            showedMissingProjectSlugErrorMsg = true;
-          }
-
-          return;
-        }
-      }
-
-      if (userPluginOptions.errorHandler) {
-        return userPluginOptions.errorHandler(err, invokeErr, compilation);
-      }
-
-      return invokeErr();
-    },
+    authToken: 'todo',
+    url: 'todo',
   };
 }
 
@@ -1075,55 +926,4 @@ function getRequestAsyncStorageModuleLocation(
   }
 
   return undefined;
-}
-
-let downloadingCliAttempted = false;
-
-class SentryCliDownloadPlugin implements WebpackPluginInstance {
-  public apply(compiler: Compiler): void {
-    compiler.hooks.beforeRun.tapAsync('SentryCliDownloadPlugin', (compiler, callback) => {
-      const SentryWebpackPlugin = loadModule<SentryCliPlugin>('@sentry/webpack-plugin');
-      if (!SentryWebpackPlugin) {
-        // Pretty much an invariant.
-        return callback();
-      }
-
-      // @ts-expect-error - this exists, the dynamic import just doesn't know it
-      if (SentryWebpackPlugin.cliBinaryExists()) {
-        return callback();
-      }
-
-      if (!downloadingCliAttempted) {
-        downloadingCliAttempted = true;
-        // eslint-disable-next-line no-console
-        logger.info(
-          `\n${chalk.cyan('info')}  - ${chalk.bold(
-            'Sentry binary to upload source maps not found.',
-          )} Package manager post-install scripts are likely disabled or there is a caching issue. Manually downloading instead...`,
-        );
-
-        // @ts-expect-error - this exists, the dynamic import just doesn't know it
-        const cliDownloadPromise: Promise<void> = SentryWebpackPlugin.downloadCliBinary({
-          log: () => {
-            // No logs from directly from CLI
-          },
-        });
-
-        cliDownloadPromise.then(
-          () => {
-            // eslint-disable-next-line no-console
-            logger.info(`${chalk.cyan('info')}  - Sentry binary was successfully downloaded.\n`);
-            return callback();
-          },
-          e => {
-            // eslint-disable-next-line no-console
-            logger.error(`${chalk.red('error')} - Sentry binary download failed:`, e);
-            return callback();
-          },
-        );
-      } else {
-        return callback();
-      }
-    });
-  }
 }
