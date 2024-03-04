@@ -64,9 +64,7 @@
   "scripts": {
     "build": "run-p build:transpile build:bundle build:types",
     "build:dev": "yarn build",
-    "build:bundle": "run-p build:bundle:es5 build:bundle:es6",
-    "build:bundle:es5": "JS_VERSION=es5 rollup -c rollup.bundle.config.mjs",
-    "build:bundle:es6": "JS_VERSION=es6 rollup -c rollup.bundle.config.mjs",
+    "build:bundle": "JS_VERSION=es2017 rollup -c rollup.bundle.config.mjs",
     "build:transpile": "rollup -c rollup.npm.config.mjs",
     "build:types": "run-s build:types:core build:types:downlevel",
     "build:types:core": "tsc -p tsconfig.types.json",
