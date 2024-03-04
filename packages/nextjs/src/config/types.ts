@@ -45,11 +45,19 @@ export type NextConfigObject = {
 };
 
 export type SentryBuildtimeOptions = {
+  org: {};
+  project: {};
+  authToken: {};
+  sentryUrl: {};
+  telemetry: {};
+
   /**
    * TODO
    */
   sourcemaps: {
     disable: {};
+    assets: {};
+    ignore: {};
   };
 
   /**
@@ -72,24 +80,7 @@ export type SentryBuildtimeOptions = {
   /**
    * TODO
    */
-  componentAnnotation: {};
-
-  /**
-   * TODO
-   */
-  telemetry: {};
-
-  /**
-   * Override the SDK's default decision about whether or not to enable to the Sentry webpack plugin for server files.
-   * Note that `false` forces the plugin to be enabled, even in situations where it's not recommended.
-   */
-  disableServerWebpackPlugin?: boolean;
-
-  /**
-   * Override the SDK's default decision about whether or not to enable to the Sentry webpack plugin for client files.
-   * Note that `false` forces the plugin to be enabled, even in situations where it's not recommended.
-   */
-  disableClientWebpackPlugin?: boolean;
+  reactComponentAnnotation: {};
 
   /**
    * Use `hidden-source-map` for webpack `devtool` option, which strips the `sourceMappingURL` from the bottom of built
