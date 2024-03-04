@@ -407,8 +407,6 @@ describe('tracingHandler', () => {
 
     setImmediate(() => {
       expect(finishTransaction).toHaveBeenCalled();
-      // eslint-disable-next-line deprecation/deprecation
-      expect(transaction.status).toBe('ok');
       expect(spanToJSON(transaction).status).toBe('ok');
       expect(spanToJSON(transaction).data).toEqual(expect.objectContaining({ 'http.response.status_code': 200 }));
       done();
@@ -489,7 +487,7 @@ describe('tracingHandler', () => {
       expect(finishTransaction).toHaveBeenCalled();
       expect(spanToJSON(span).timestamp).toBeLessThanOrEqual(spanToJSON(transaction).timestamp!);
       expect(sentEvent.spans?.length).toEqual(1);
-      expect(sentEvent.spans?.[0].spanContext().spanId).toEqual(span.spanContext().spanId);
+      expect(sentEvent.spans?.[0].span_id).toEqual(span.spanContext().spanId);
       done();
     });
   });

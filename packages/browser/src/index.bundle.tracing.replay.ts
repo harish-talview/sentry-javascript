@@ -7,9 +7,18 @@ import { replayIntegration } from '@sentry/replay';
 addTracingExtensions();
 
 export {
+  getActiveSpan,
+  startSpan,
+  startInactiveSpan,
+  startSpanManual,
+  withActiveSpan,
+} from '@sentry/core';
+
+export {
   replayIntegration,
   feedbackIntegrationShim as feedbackIntegration,
   browserTracingIntegration,
   addTracingExtensions,
 };
+
 export * from './index.bundle.base';

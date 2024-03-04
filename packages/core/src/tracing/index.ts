@@ -4,16 +4,13 @@ export type { BeforeFinishCallback } from './idletransaction';
 export { SentrySpan } from './sentrySpan';
 export { Transaction } from './transaction';
 // eslint-disable-next-line deprecation/deprecation
-export { getActiveTransaction } from './utils';
-// eslint-disable-next-line deprecation/deprecation
-export { SpanStatus } from './spanstatus';
+export { getActiveTransaction, getActiveSpan } from './utils';
 export {
   setHttpStatus,
   getSpanStatusFromHttpCode,
 } from './spanstatus';
-export type { SpanStatusType } from './spanstatus';
+export { SPAN_STATUS_ERROR, SPAN_STATUS_OK, SPAN_STATUS_UNSET } from './spanstatus';
 export {
-  getActiveSpan,
   startSpan,
   startInactiveSpan,
   startSpanManual,

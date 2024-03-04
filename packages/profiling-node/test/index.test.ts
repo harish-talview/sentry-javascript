@@ -14,7 +14,7 @@ function makeStaticTransport(): MockTransport {
     events: [] as any[],
     send: function (...args: any[]) {
       this.events.push(args);
-      return Promise.resolve();
+      return Promise.resolve({});
     },
     flush: function () {
       return Promise.resolve(true);
@@ -23,6 +23,7 @@ function makeStaticTransport(): MockTransport {
 }
 
 function makeClientWithoutHooks(): [Sentry.NodeClient, MockTransport] {
+  // eslint-disable-next-line deprecation/deprecation
   const integration = new ProfilingIntegration();
   const transport = makeStaticTransport();
   const client = new Sentry.NodeClient({

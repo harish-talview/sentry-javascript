@@ -27,6 +27,7 @@
     "@sentry/core": "file:../../../core",
     "@sentry/node": "file:../../../node-experimental",
     "@sentry/node-experimental": "file:../../../node",
+    "@sentry/opentelemetry": "file:../../../opentelemetry",
     "@sentry/react": "file:../../../react",
     "@sentry/replay": "file:../../../replay",
     "@sentry-internal/replay-canvas": "file:../../../replay-canvas",
@@ -38,6 +39,6 @@
     "@vanilla-extract/integration": "6.2.4"
   },
   "engines": {
-    "node": ">=14"
+    "node": ">=14.8"
   }
 }

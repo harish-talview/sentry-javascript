@@ -1,12 +1,13 @@
 import type {
   Primitive,
-  Span as SpanInterface,
+  Span,
   SpanAttributeValue,
   SpanAttributes,
   SpanContext,
   SpanContextData,
   SpanJSON,
   SpanOrigin,
+  SpanStatus,
   SpanTimeInput,
   TraceContext,
   Transaction,
@@ -24,8 +25,8 @@ import {
   spanToJSON,
   spanToTraceContext,
 } from '../utils/spanUtils';
-import type { SpanStatusType } from './spanstatus';
-import { addChildSpanToSpan } from './trace';
+import { SPAN_STATUS_OK, SPAN_STATUS_UNSET } from './spanstatus';
+import { addChildSpanToSpan } from './utils';
 
 /**
  * Keeps track of finished spans for a given transaction
@@ -62,7 +63,7 @@ export class SpanRecorder {
 /**
  * Span contains all data about a span
  */
-export class SentrySpan implements SpanInterface {
+export class SentrySpan implements Span {
   /**
    * Tags for the span.
    * @deprecated Use `spanToJSON(span).atttributes` instead.
@@ -99,7 +100,7 @@ export class SentrySpan implements SpanInterface {
   /** Epoch timestamp in seconds when the span ended. */
   protected _endTime?: number | undefined;
   /** Internal keeper of the status */
-  protected _status?: SpanStatusType | string | undefined;
+  protected _status?: SpanStatus;
 
   private _logMessage?: string;
 
@@ -134,9 +135,6 @@ export class SentrySpan implements SpanInterface {
     // We want to include booleans as well here
     if ('sampled' in spanContext) {
       this._sampled = spanContext.sampled;
-    }
-    if (spanContext.status) {
-      this._status = spanContext.status;
     }
     if (spanContext.endTimestamp) {
       this._endTime = spanContext.endTimestamp;
@@ -260,24 +258,6 @@ export class SentrySpan implements SpanInterface {
     this._endTime = endTime;
   }
 
-  /**
-   * The status of the span.
-   *
-   * @deprecated Use `spanToJSON().status` instead to get the status.
-   */
-  public get status(): SpanStatusType | string | undefined {
-    return this._status;
-  }
-
-  /**
-   * The status of the span.
-   *
-   * @deprecated Use `.setStatus()` instead to set or update the status.
-   */
-  public set status(status: SpanStatusType | string | undefined) {
-    this._status = status;
-  }
-
   /* eslint-enable @typescript-eslint/member-ordering */
 
   /** @inheritdoc */
@@ -298,7 +278,7 @@ export class SentrySpan implements SpanInterface {
    */
   public startChild(
     spanContext?: Pick<SpanContext, Exclude<keyof SpanContext, 'sampled' | 'traceId' | 'parentSpanId'>>,
-  ): SpanInterface {
+  ): Span {
     const childSpan = new SentrySpan({
       ...spanContext,
       parentSpanId: this._spanId,
@@ -384,7 +364,7 @@ export class SentrySpan implements SpanInterface {
   /**
    * @inheritDoc
    */
-  public setStatus(value: SpanStatusType): this {
+  public setStatus(value: SpanStatus): this {
     this._status = value;
     return this;
   }
@@ -466,7 +446,7 @@ export class SentrySpan implements SpanInterface {
       parent_span_id: this._parentSpanId,
       span_id: this._spanId,
       start_timestamp: this._startTime,
-      status: this._status,
+      status: getStatusMessage(this._status),
       // eslint-disable-next-line deprecation/deprecation
       tags: Object.keys(this.tags).length > 0 ? this.tags : undefined,
       timestamp: this._endTime,
@@ -519,4 +499,16 @@ export class SentrySpan implements SpanInterface {
 
     return hasData ? data : attributes;
   }
+}
+
+function getStatusMessage(status: SpanStatus | undefined): string | undefined {
+  if (!status || status.code === SPAN_STATUS_UNSET) {
+    return undefined;
+  }
+
+  if (status.code === SPAN_STATUS_OK) {
+    return 'ok';
+  }
+
+  return status.message || 'unknown_error';
 }

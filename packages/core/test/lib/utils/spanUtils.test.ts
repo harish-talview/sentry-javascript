@@ -1,5 +1,5 @@
 import { TRACEPARENT_REGEXP, timestampInSeconds } from '@sentry/utils';
-import { SentrySpan, spanToTraceHeader } from '../../../src';
+import { SPAN_STATUS_OK, SentrySpan, spanToTraceHeader } from '../../../src';
 import { spanIsSampled, spanTimeInputToSeconds, spanToJSON } from '../../../src/utils/spanUtils';
 
 describe('spanToTraceHeader', () => {
@@ -67,12 +67,12 @@ describe('spanToJSON', () => {
       op: 'test op',
       parentSpanId: '1234',
       spanId: '5678',
-      status: 'ok',
       traceId: 'abcd',
       origin: 'auto',
       startTimestamp: 123,
       endTimestamp: 456,
     });
+    span.setStatus({ code: SPAN_STATUS_OK });
 
     expect(spanToJSON(span)).toEqual({
       description: 'test name',

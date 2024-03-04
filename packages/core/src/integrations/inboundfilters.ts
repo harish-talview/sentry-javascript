@@ -1,21 +1,15 @@
-import type { Client, Event, EventHint, Integration, IntegrationClass, IntegrationFn, StackFrame } from '@sentry/types';
+import type { Event, IntegrationFn, StackFrame } from '@sentry/types';
 import { getEventDescription, logger, stringMatchesSomePattern } from '@sentry/utils';
 
 import { DEBUG_BUILD } from '../debug-build';
-import { convertIntegrationFnToClass, defineIntegration } from '../integration';
+import { defineIntegration } from '../integration';
 
 // "Script error." is hard coded into browsers for errors that it can't read.
 // this is the result of a script being pulled in from an external domain and CORS.
-const DEFAULT_IGNORE_ERRORS = [/^Script error\.?$/, /^Javascript error: Script error\.? on line 0$/];
-
-const DEFAULT_IGNORE_TRANSACTIONS = [
-  /^.*\/healthcheck$/,
-  /^.*\/healthy$/,
-  /^.*\/live$/,
-  /^.*\/ready$/,
-  /^.*\/heartbeat$/,
-  /^.*\/health$/,
-  /^.*\/healthz$/,
+const DEFAULT_IGNORE_ERRORS = [
+  /^Script error\.?$/,
+  /^Javascript error: Script error\.? on line 0$/,
+  /^ResizeObserver loop completed with undelivered notifications.$/,
 ];
 
 /** Options for the InboundFilters integration */
@@ -26,7 +20,6 @@ export interface InboundFiltersOptions {
   ignoreTransactions: Array<string | RegExp>;
   ignoreInternal: boolean;
   disableErrorDefaults: boolean;
-  disableTransactionDefaults: boolean;
 }
 
 const INTEGRATION_NAME = 'InboundFilters';
@@ -43,28 +36,6 @@ const _inboundFiltersIntegration = ((options: Partial<InboundFiltersOptions> = {
 
 export const inboundFiltersIntegration = defineIntegration(_inboundFiltersIntegration);
 
-/**
- * Inbound filters configurable by the user.
- * @deprecated Use `inboundFiltersIntegration()` instead.
- */
-// eslint-disable-next-line deprecation/deprecation
-export const InboundFilters = convertIntegrationFnToClass(
-  INTEGRATION_NAME,
-  inboundFiltersIntegration,
-) as IntegrationClass<Integration & { preprocessEvent: (event: Event, hint: EventHint, client: Client) => void }> & {
-  new (
-    options?: Partial<{
-      allowUrls: Array<string | RegExp>;
-      denyUrls: Array<string | RegExp>;
-      ignoreErrors: Array<string | RegExp>;
-      ignoreTransactions: Array<string | RegExp>;
-      ignoreInternal: boolean;
-      disableErrorDefaults: boolean;
-      disableTransactionDefaults: boolean;
-    }>,
-  ): Integration;
-};
-
 function _mergeOptions(
   internalOptions: Partial<InboundFiltersOptions> = {},
   clientOptions: Partial<InboundFiltersOptions> = {},
@@ -77,11 +48,7 @@ function _mergeOptions(
       ...(clientOptions.ignoreErrors || []),
       ...(internalOptions.disableErrorDefaults ? [] : DEFAULT_IGNORE_ERRORS),
     ],
-    ignoreTransactions: [
-      ...(internalOptions.ignoreTransactions || []),
-      ...(clientOptions.ignoreTransactions || []),
-      ...(internalOptions.disableTransactionDefaults ? [] : DEFAULT_IGNORE_TRANSACTIONS),
-    ],
+    ignoreTransactions: [...(internalOptions.ignoreTransactions || []), ...(clientOptions.ignoreTransactions || [])],
     ignoreInternal: internalOptions.ignoreInternal !== undefined ? internalOptions.ignoreInternal : true,
   };
 }

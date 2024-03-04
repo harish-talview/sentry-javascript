@@ -3,10 +3,15 @@ import type { ExportResult } from '@opentelemetry/core';
 import { ExportResultCode } from '@opentelemetry/core';
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
-import type { Transaction } from '@sentry/core';
-import { SEMANTIC_ATTRIBUTE_SENTRY_SOURCE } from '@sentry/core';
-import { SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE, getCurrentHub } from '@sentry/core';
-import type { Scope, Span as SentrySpan, SpanOrigin, TransactionSource } from '@sentry/types';
+import type { SentrySpan, Transaction } from '@sentry/core';
+import {
+  SEMANTIC_ATTRIBUTE_SENTRY_OP,
+  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
+  SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE,
+  SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
+  getCurrentHub,
+} from '@sentry/core';
+import type { Scope, SpanOrigin, TransactionSource } from '@sentry/types';
 import { addNonEnumerableProperty, dropUndefinedKeys, logger } from '@sentry/utils';
 import { startTransaction } from './custom/transaction';
 
@@ -132,9 +137,9 @@ function shouldCleanupSpan(span: ReadableSpan, maxStartTimeOffsetSeconds: number
 function parseSpan(span: ReadableSpan): { op?: string; origin?: SpanOrigin; source?: TransactionSource } {
   const attributes = span.attributes;
 
-  const origin = attributes[InternalSentrySemanticAttributes.ORIGIN] as SpanOrigin | undefined;
-  const op = attributes[InternalSentrySemanticAttributes.OP] as string | undefined;
-  const source = attributes[InternalSentrySemanticAttributes.SOURCE] as TransactionSource | undefined;
+  const origin = attributes[SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN] as SpanOrigin | undefined;
+  const op = attributes[SEMANTIC_ATTRIBUTE_SENTRY_OP] as string | undefined;
+  const source = attributes[SEMANTIC_ATTRIBUTE_SENTRY_SOURCE] as TransactionSource | undefined;
 
   return { origin, op, source };
 }
@@ -171,7 +176,6 @@ function createTransactionForOtelSpan(span: ReadableSpan): Transaction {
     parentSampled,
     name: description,
     op,
-    status: mapStatus(span),
     startTimestamp: convertOtelTimeToSeconds(span.startTime),
     metadata: {
       ...dropUndefinedKeys({
@@ -185,6 +189,8 @@ function createTransactionForOtelSpan(span: ReadableSpan): Transaction {
     sampled: true,
   });
 
+  transaction.setStatus(mapStatus(span));
+
   // We currently don't want to write this to the scope because it would mutate it.
   // In the future we will likely have some sort of transaction payload factory where we can pass this context in directly
   // eslint-disable-next-line deprecation/deprecation
@@ -194,14 +200,7 @@ function createTransactionForOtelSpan(span: ReadableSpan): Transaction {
   });
 
   if (capturedSpanScopes) {
-    // Ensure the `transaction` tag is correctly set on the transaction event
-    const scope = capturedSpanScopes.scope.clone();
-    scope.addEventProcessor(event => {
-      event.tags = { transaction: description, ...event.tags };
-      return event;
-    });
-
-    setCapturedScopesOnTransaction(transaction, scope, capturedSpanScopes.isolationScope);
+    setCapturedScopesOnTransaction(transaction, capturedSpanScopes.scope, capturedSpanScopes.isolationScope);
   }
 
   return transaction;
@@ -232,11 +231,11 @@ function createAndFinishSpanForOtelSpan(node: SpanNode, sentryParentSpan: Sentry
     name: description,
     op,
     data: allData,
-    status: mapStatus(span),
     startTimestamp: convertOtelTimeToSeconds(span.startTime),
     spanId,
     origin,
-  });
+  }) as SentrySpan;
+  sentrySpan.setStatus(mapStatus(span));
 
   node.children.forEach(child => {
     createAndFinishSpanForOtelSpan(child, sentrySpan, remaining);
@@ -278,11 +277,6 @@ function removeSentryAttributes(data: Record<string, unknown>): Record<string, u
 
   /* eslint-disable @typescript-eslint/no-dynamic-delete */
   delete cleanedData[InternalSentrySemanticAttributes.PARENT_SAMPLED];
-  delete cleanedData[InternalSentrySemanticAttributes.ORIGIN];
-  delete cleanedData[InternalSentrySemanticAttributes.OP];
-  delete cleanedData[InternalSentrySemanticAttributes.SOURCE];
-  // We want to avoid having this on each span (as that is set by the Sampler)
-  // We only want this on the transaction, where we manually add it to `attributes`
   delete cleanedData[SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE];
   /* eslint-enable @typescript-eslint/no-dynamic-delete */
 

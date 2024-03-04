@@ -7,6 +7,7 @@ import { CpuProfilerBindings } from '../src/cpu_profiler';
 import { ProfilingIntegration } from '../src/index';
 
 function makeClientWithoutHooks(): [Sentry.NodeClient, Transport] {
+  // eslint-disable-next-line deprecation/deprecation
   const integration = new ProfilingIntegration();
   const transport = Sentry.makeNodeTransport({
     url: 'https://7fa19397baaf433f919fbe02228d5470@o1137848.ingest.sentry.io/6625302',
@@ -41,6 +42,7 @@ function makeClientWithoutHooks(): [Sentry.NodeClient, Transport] {
 }
 
 function makeClientWithHooks(): [Sentry.NodeClient, Transport] {
+  // eslint-disable-next-line deprecation/deprecation
   const integration = new ProfilingIntegration();
   const client = new Sentry.NodeClient({
     stackParser: Sentry.defaultStackParser,
@@ -96,7 +98,7 @@ describe('hubextensions', () => {
     // eslint-disable-next-line deprecation/deprecation
     hub.bindClient(client);
 
-    const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+    const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
     // eslint-disable-next-line deprecation/deprecation
     const transaction = Sentry.getCurrentHub().startTransaction({ name: 'profile_hub' });
@@ -133,7 +135,7 @@ describe('hubextensions', () => {
       };
     });
 
-    jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+    jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
     // eslint-disable-next-line deprecation/deprecation
     const transaction = Sentry.getCurrentHub().startTransaction({ name: 'profile_hub' });
@@ -181,7 +183,7 @@ describe('hubextensions', () => {
       };
     });
 
-    jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+    jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
     // eslint-disable-next-line deprecation/deprecation
     const transaction = Sentry.getCurrentHub().startTransaction({ name: 'profile_hub', traceId: 'boop' });
@@ -203,7 +205,7 @@ describe('hubextensions', () => {
       const startProfilingSpy = jest.spyOn(CpuProfilerBindings, 'startProfiling');
       const stopProfilingSpy = jest.spyOn(CpuProfilerBindings, 'stopProfiling');
 
-      jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+      jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
       // eslint-disable-next-line deprecation/deprecation
       const transaction = hub.startTransaction({ name: 'profile_hub' });
@@ -223,7 +225,7 @@ describe('hubextensions', () => {
       // eslint-disable-next-line deprecation/deprecation
       hub.bindClient(client);
 
-      const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+      const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
       // eslint-disable-next-line deprecation/deprecation
       const transaction = hub.startTransaction({ name: 'profile_hub' });
@@ -274,7 +276,7 @@ describe('hubextensions', () => {
       // Emit is sync, so we can just assert that we got here
       const transportSpy = jest.spyOn(transport, 'send').mockImplementation(() => {
         // Do nothing so we don't send events to Sentry
-        return Promise.resolve();
+        return Promise.resolve({});
       });
 
       // eslint-disable-next-line deprecation/deprecation
@@ -346,7 +348,7 @@ describe('hubextensions', () => {
 
       const transportSpy = jest.spyOn(transport, 'send').mockImplementation(() => {
         // Do nothing so we don't send events to Sentry
-        return Promise.resolve();
+        return Promise.resolve({});
       });
 
       // eslint-disable-next-line deprecation/deprecation
@@ -439,7 +441,7 @@ describe('hubextensions', () => {
     // eslint-disable-next-line deprecation/deprecation
     hub.bindClient(client);
 
-    const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve());
+    const transportSpy = jest.spyOn(transport, 'send').mockReturnValue(Promise.resolve({}));
 
     // eslint-disable-next-line deprecation/deprecation
     const transaction = hub.startTransaction({ name: 'profile_hub' });

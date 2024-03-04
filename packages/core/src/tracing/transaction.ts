@@ -21,7 +21,7 @@ import { SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE, SEMANTIC_ATTRIBUTE_SENTRY_SOURCE
 import { spanTimeInputToSeconds, spanToJSON, spanToTraceContext } from '../utils/spanUtils';
 import { getDynamicSamplingContextFromSpan } from './dynamicSamplingContext';
 import { SentrySpan, SpanRecorder } from './sentrySpan';
-import { getCapturedScopesOnSpan, getSpanTree } from './trace';
+import { getCapturedScopesOnSpan, getSpanTree } from './utils';
 
 /** JSDoc */
 export class Transaction extends SentrySpan implements TransactionInterface {
@@ -276,8 +276,7 @@ export class Transaction extends SentrySpan implements TransactionInterface {
         // We don't want to override trace context
         trace: spanToTraceContext(this),
       },
-      // TODO: Pass spans serialized via `spanToJSON()` here instead in v8.
-      spans: finishedSpans,
+      spans: finishedSpans.map(span => spanToJSON(span)),
       start_timestamp: this._startTime,
       // eslint-disable-next-line deprecation/deprecation
       tags: this.tags,

@@ -1,15 +1,22 @@
 import type { Span, TimeInput } from '@opentelemetry/api';
+import { ROOT_CONTEXT } from '@opentelemetry/api';
 import { SpanKind } from '@opentelemetry/api';
 import { TraceFlags, context, trace } from '@opentelemetry/api';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { Span as SpanClass } from '@opentelemetry/sdk-trace-base';
-import { SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE, getClient, getCurrentScope } from '@sentry/core';
-import type { PropagationContext, Scope } from '@sentry/types';
+import {
+  SEMANTIC_ATTRIBUTE_SENTRY_OP,
+  SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN,
+  SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE,
+  SEMANTIC_ATTRIBUTE_SENTRY_SOURCE,
+  getClient,
+  getCurrentScope,
+  withScope,
+} from '@sentry/core';
+import type { Event, Scope } from '@sentry/types';
 
-import { InternalSentrySemanticAttributes } from '../src/semanticAttributes';
 import { startInactiveSpan, startSpan, startSpanManual } from '../src/trace';
 import type { AbstractSpan } from '../src/types';
-import { setPropagationContextOnContext } from '../src/utils/contextData';
 import { getActiveSpan, getRootSpan } from '../src/utils/getActiveSpan';
 import { getSpanKind } from '../src/utils/getSpanKind';
 import { getSpanMetadata } from '../src/utils/spanData';
@@ -220,15 +227,15 @@ describe('trace', () => {
           origin: 'auto.test.origin',
           metadata: { requestPath: 'test-path' },
           attributes: {
-            [InternalSentrySemanticAttributes.SOURCE]: 'task',
+            [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: 'task',
           },
         },
         span => {
           expect(span).toBeDefined();
           expect(getSpanAttributes(span)).toEqual({
-            [InternalSentrySemanticAttributes.SOURCE]: 'task',
-            [InternalSentrySemanticAttributes.ORIGIN]: 'auto.test.origin',
-            [InternalSentrySemanticAttributes.OP]: 'my-op',
+            [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: 'task',
+            [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.test.origin',
+            [SEMANTIC_ATTRIBUTE_SENTRY_OP]: 'my-op',
             [SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE]: 1,
           });
 
@@ -298,6 +305,107 @@ describe('trace', () => {
 
       expect(getCurrentScope()).toBe(initialScope);
       expect(getActiveSpan()).toBe(undefined);
+    });
+
+    it('allows to force a transaction with forceTransaction=true', async () => {
+      const client = getClient()!;
+      const transactionEvents: Event[] = [];
+
+      client.getOptions().beforeSendTransaction = event => {
+        transactionEvents.push({
+          ...event,
+          sdkProcessingMetadata: {
+            dynamicSamplingContext: event.sdkProcessingMetadata?.dynamicSamplingContext,
+          },
+        });
+        return event;
+      };
+
+      startSpan({ name: 'outer transaction' }, () => {
+        startSpan({ name: 'inner span' }, () => {
+          startSpan({ name: 'inner transaction', forceTransaction: true }, () => {
+            startSpan({ name: 'inner span 2' }, () => {
+              // all good
+            });
+          });
+        });
+      });
+
+      await client.flush();
+
+      const normalizedTransactionEvents = transactionEvents.map(event => {
+        return {
+          ...event,
+          spans: event.spans?.map(span => ({ name: span.description, id: span.span_id })),
+        };
+      });
+
+      expect(normalizedTransactionEvents).toHaveLength(2);
+
+      const outerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'outer transaction');
+      const innerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'inner transaction');
+
+      const outerTraceId = outerTransaction?.contexts?.trace?.trace_id;
+      // The inner transaction should be a child of the last span of the outer transaction
+      const innerParentSpanId = outerTransaction?.spans?.[0].id;
+      const innerSpanId = innerTransaction?.contexts?.trace?.span_id;
+
+      expect(outerTraceId).toBeDefined();
+      expect(innerParentSpanId).toBeDefined();
+      expect(innerSpanId).toBeDefined();
+      // inner span ID should _not_ be the parent span ID, but the id of the new span
+      expect(innerSpanId).not.toEqual(innerParentSpanId);
+
+      expect(outerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.sample_rate': 1,
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+        },
+        span_id: expect.any(String),
+        trace_id: expect.any(String),
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(outerTransaction?.spans).toEqual([{ name: 'inner span', id: expect.any(String) }]);
+      expect(outerTransaction?.transaction).toEqual('outer transaction');
+      expect(outerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
+
+      expect(innerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+          'sentry.sample_rate': 1,
+        },
+        parent_span_id: innerParentSpanId,
+        span_id: expect.any(String),
+        trace_id: outerTraceId,
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(innerTransaction?.spans).toEqual([{ name: 'inner span 2', id: expect.any(String) }]);
+      expect(innerTransaction?.transaction).toEqual('inner transaction');
+      expect(innerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
     });
 
     // TODO: propagation scope is not picked up by spans...
@@ -376,7 +484,7 @@ describe('trace', () => {
         op: 'my-op',
         origin: 'auto.test.origin',
         attributes: {
-          [InternalSentrySemanticAttributes.SOURCE]: 'task',
+          [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: 'task',
         },
         metadata: { requestPath: 'test-path' },
       });
@@ -384,9 +492,9 @@ describe('trace', () => {
       expect(span2).toBeDefined();
       expect(getSpanAttributes(span2)).toEqual({
         [SEMANTIC_ATTRIBUTE_SENTRY_SAMPLE_RATE]: 1,
-        [InternalSentrySemanticAttributes.SOURCE]: 'task',
-        [InternalSentrySemanticAttributes.ORIGIN]: 'auto.test.origin',
-        [InternalSentrySemanticAttributes.OP]: 'my-op',
+        [SEMANTIC_ATTRIBUTE_SENTRY_SOURCE]: 'task',
+        [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: 'auto.test.origin',
+        [SEMANTIC_ATTRIBUTE_SENTRY_OP]: 'my-op',
       });
 
       expect(getSpanMetadata(span2)).toEqual({ requestPath: 'test-path' });
@@ -444,6 +552,104 @@ describe('trace', () => {
       expect(getActiveSpan()).toBe(undefined);
     });
 
+    it('allows to force a transaction with forceTransaction=true', async () => {
+      const client = getClient()!;
+      const transactionEvents: Event[] = [];
+
+      client.getOptions().beforeSendTransaction = event => {
+        transactionEvents.push({
+          ...event,
+          sdkProcessingMetadata: {
+            dynamicSamplingContext: event.sdkProcessingMetadata?.dynamicSamplingContext,
+          },
+        });
+        return event;
+      };
+
+      startSpan({ name: 'outer transaction' }, () => {
+        startSpan({ name: 'inner span' }, () => {
+          const innerTransaction = startInactiveSpan({ name: 'inner transaction', forceTransaction: true });
+          innerTransaction?.end();
+        });
+      });
+
+      await client.flush();
+
+      const normalizedTransactionEvents = transactionEvents.map(event => {
+        return {
+          ...event,
+          spans: event.spans?.map(span => ({ name: span.description, id: span.span_id })),
+        };
+      });
+
+      expect(normalizedTransactionEvents).toHaveLength(2);
+
+      const outerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'outer transaction');
+      const innerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'inner transaction');
+
+      const outerTraceId = outerTransaction?.contexts?.trace?.trace_id;
+      // The inner transaction should be a child of the last span of the outer transaction
+      const innerParentSpanId = outerTransaction?.spans?.[0].id;
+      const innerSpanId = innerTransaction?.contexts?.trace?.span_id;
+
+      expect(outerTraceId).toBeDefined();
+      expect(innerParentSpanId).toBeDefined();
+      expect(innerSpanId).toBeDefined();
+      // inner span ID should _not_ be the parent span ID, but the id of the new span
+      expect(innerSpanId).not.toEqual(innerParentSpanId);
+
+      expect(outerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.sample_rate': 1,
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+        },
+        span_id: expect.any(String),
+        trace_id: expect.any(String),
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(outerTransaction?.spans).toEqual([{ name: 'inner span', id: expect.any(String) }]);
+      expect(outerTransaction?.transaction).toEqual('outer transaction');
+      expect(outerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
+
+      expect(innerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+          'sentry.sample_rate': 1,
+        },
+        parent_span_id: innerParentSpanId,
+        span_id: expect.any(String),
+        trace_id: outerTraceId,
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(innerTransaction?.spans).toEqual([]);
+      expect(innerTransaction?.transaction).toEqual('inner transaction');
+      expect(innerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
+    });
+
     describe('onlyIfParent', () => {
       it('does not create a span if there is no parent', () => {
         const span = startInactiveSpan({ name: 'test span', onlyIfParent: true });
@@ -460,6 +666,44 @@ describe('trace', () => {
 
         expect(span).toBeInstanceOf(SpanClass);
       });
+    });
+
+    it('includes the scope at the time the span was started when finished', async () => {
+      const beforeSendTransaction = jest.fn(event => event);
+
+      const client = getClient()!;
+
+      client.getOptions().beforeSendTransaction = beforeSendTransaction;
+
+      let span: Span | undefined;
+
+      const scope = getCurrentScope();
+      scope.setTag('outer', 'foo');
+
+      withScope(scope => {
+        scope.setTag('scope', 1);
+        span = startInactiveSpan({ name: 'my-span' });
+        scope.setTag('scope_after_span', 2);
+      });
+
+      withScope(scope => {
+        scope.setTag('scope', 2);
+        span?.end();
+      });
+
+      await client.flush();
+
+      expect(beforeSendTransaction).toHaveBeenCalledTimes(1);
+      expect(beforeSendTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            outer: 'foo',
+            scope: 1,
+            scope_after_span: 2,
+          }),
+        }),
+        expect.anything(),
+      );
     });
   });
 
@@ -570,6 +814,111 @@ describe('trace', () => {
 
       expect(getCurrentScope()).toBe(initialScope);
       expect(getActiveSpan()).toBe(undefined);
+    });
+
+    it('allows to force a transaction with forceTransaction=true', async () => {
+      const client = getClient()!;
+      const transactionEvents: Event[] = [];
+
+      client.getOptions().beforeSendTransaction = event => {
+        transactionEvents.push({
+          ...event,
+          sdkProcessingMetadata: {
+            dynamicSamplingContext: event.sdkProcessingMetadata?.dynamicSamplingContext,
+          },
+        });
+        return event;
+      };
+
+      startSpanManual({ name: 'outer transaction' }, span => {
+        startSpanManual({ name: 'inner span' }, span => {
+          startSpanManual({ name: 'inner transaction', forceTransaction: true }, span => {
+            startSpanManual({ name: 'inner span 2' }, span => {
+              // all good
+              span?.end();
+            });
+            span?.end();
+          });
+          span?.end();
+        });
+        span?.end();
+      });
+
+      await client.flush();
+
+      const normalizedTransactionEvents = transactionEvents.map(event => {
+        return {
+          ...event,
+          spans: event.spans?.map(span => ({ name: span.description, id: span.span_id })),
+        };
+      });
+
+      expect(normalizedTransactionEvents).toHaveLength(2);
+
+      const outerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'outer transaction');
+      const innerTransaction = normalizedTransactionEvents.find(event => event.transaction === 'inner transaction');
+
+      const outerTraceId = outerTransaction?.contexts?.trace?.trace_id;
+      // The inner transaction should be a child of the last span of the outer transaction
+      const innerParentSpanId = outerTransaction?.spans?.[0].id;
+      const innerSpanId = innerTransaction?.contexts?.trace?.span_id;
+
+      expect(outerTraceId).toBeDefined();
+      expect(innerParentSpanId).toBeDefined();
+      expect(innerSpanId).toBeDefined();
+      // inner span ID should _not_ be the parent span ID, but the id of the new span
+      expect(innerSpanId).not.toEqual(innerParentSpanId);
+
+      expect(outerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.sample_rate': 1,
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+        },
+        span_id: expect.any(String),
+        trace_id: expect.any(String),
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(outerTransaction?.spans).toEqual([{ name: 'inner span', id: expect.any(String) }]);
+      expect(outerTransaction?.transaction).toEqual('outer transaction');
+      expect(outerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
+
+      expect(innerTransaction?.contexts?.trace).toEqual({
+        data: {
+          'sentry.source': 'custom',
+          'sentry.origin': 'manual',
+          'otel.kind': 'INTERNAL',
+          'sentry.sample_rate': 1,
+        },
+        parent_span_id: innerParentSpanId,
+        span_id: expect.any(String),
+        trace_id: outerTraceId,
+        origin: 'manual',
+        status: 'ok',
+      });
+      expect(innerTransaction?.spans).toEqual([{ name: 'inner span 2', id: expect.any(String) }]);
+      expect(innerTransaction?.transaction).toEqual('inner transaction');
+      expect(innerTransaction?.sdkProcessingMetadata).toEqual({
+        dynamicSamplingContext: {
+          environment: 'production',
+          public_key: 'username',
+          trace_id: outerTraceId,
+          sample_rate: '1',
+          transaction: 'outer transaction',
+          sampled: 'true',
+        },
+      });
     });
 
     describe('onlyIfParent', () => {
@@ -727,25 +1076,15 @@ describe('trace (sampling)', () => {
       traceFlags: TraceFlags.SAMPLED,
     };
 
-    const propagationContext: PropagationContext = {
-      traceId,
-      sampled: true,
-      parentSpanId,
-      spanId: '6e0c63257de34c93',
-    };
-
     // We simulate the correct context we'd normally get from the SentryPropagator
-    context.with(
-      trace.setSpanContext(setPropagationContextOnContext(context.active(), propagationContext), spanContext),
-      () => {
-        // This will def. be sampled because of the tracesSampleRate
-        startSpan({ name: 'outer' }, outerSpan => {
-          expect(outerSpan).toBeDefined();
-          expect(outerSpan.isRecording()).toBe(true);
-          expect(getSpanName(outerSpan)).toBe('outer');
-        });
-      },
-    );
+    context.with(trace.setSpanContext(ROOT_CONTEXT, spanContext), () => {
+      // This will def. be sampled because of the tracesSampleRate
+      startSpan({ name: 'outer' }, outerSpan => {
+        expect(outerSpan).toBeDefined();
+        expect(outerSpan.isRecording()).toBe(true);
+        expect(getSpanName(outerSpan)).toBe('outer');
+      });
+    });
   });
 
   it('negative remote parent sampling takes precedence over tracesSampleRate', () => {
@@ -764,24 +1103,14 @@ describe('trace (sampling)', () => {
       traceFlags: TraceFlags.NONE,
     };
 
-    const propagationContext: PropagationContext = {
-      traceId,
-      sampled: false,
-      parentSpanId,
-      spanId: '6e0c63257de34c93',
-    };
-
     // We simulate the correct context we'd normally get from the SentryPropagator
-    context.with(
-      trace.setSpanContext(setPropagationContextOnContext(context.active(), propagationContext), spanContext),
-      () => {
-        // This will def. be sampled because of the tracesSampleRate
-        startSpan({ name: 'outer' }, outerSpan => {
-          expect(outerSpan).toBeDefined();
-          expect(outerSpan.isRecording()).toBe(false);
-        });
-      },
-    );
+    context.with(trace.setSpanContext(ROOT_CONTEXT, spanContext), () => {
+      // This will def. be sampled because of the tracesSampleRate
+      startSpan({ name: 'outer' }, outerSpan => {
+        expect(outerSpan).toBeDefined();
+        expect(outerSpan.isRecording()).toBe(false);
+      });
+    });
   });
 
   it('samples with a tracesSampler returning a boolean', () => {
@@ -904,23 +1233,13 @@ describe('trace (sampling)', () => {
       traceFlags: TraceFlags.SAMPLED,
     };
 
-    const propagationContext: PropagationContext = {
-      traceId,
-      sampled: true,
-      parentSpanId,
-      spanId: '6e0c63257de34c93',
-    };
-
     // We simulate the correct context we'd normally get from the SentryPropagator
-    context.with(
-      trace.setSpanContext(setPropagationContextOnContext(context.active(), propagationContext), spanContext),
-      () => {
-        // This will def. be sampled because of the tracesSampleRate
-        startSpan({ name: 'outer' }, outerSpan => {
-          expect(outerSpan.isRecording()).toBe(false);
-        });
-      },
-    );
+    context.with(trace.setSpanContext(ROOT_CONTEXT, spanContext), () => {
+      // This will def. be sampled because of the tracesSampleRate
+      startSpan({ name: 'outer' }, outerSpan => {
+        expect(outerSpan.isRecording()).toBe(false);
+      });
+    });
 
     expect(tracesSampler).toBeCalledTimes(1);
     expect(tracesSampler).toHaveBeenLastCalledWith({
