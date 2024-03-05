@@ -14,11 +14,6 @@ export {
   withActiveSpan,
 } from '@sentry/core';
 
-export {
-  feedbackIntegration,
-  replayIntegration,
-  browserTracingIntegration,
-  addTracingExtensions,
-};
+export { feedbackIntegration, replayIntegration, browserTracingIntegration, addTracingExtensions };
 
 export * from './index.bundle.base';
